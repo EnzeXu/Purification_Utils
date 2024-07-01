@@ -14,7 +14,7 @@ if __name__ == "__main__":
 
     # Demo: purify function
     example_eq = "-0.006380087387799799*x + 1.0092640158560806*x/z - 0.099003265454531446*y/z + 0.3354600291292666*z - 10.33025282098863"
-    example_data: np.ndarray = np.load("example.npy")
+    example_data: np.ndarray = np.load("example.npy")  # N * dim
     example_variable_list = ["x", "y", "z"]
     purified_eq, avg_ratio, full_terms, terms = purify(example_eq, example_data, example_variable_list, threshold=0.01)
     print(f"example_data shape: {example_data.shape}")
