@@ -1,6 +1,8 @@
-from .utils import extract, purify
+from .utils import *
 
 __all__ = [
     "extract",
-    "purify",
+    "purify_2d_sequential",
+    "purify_3d_sequential",
+    "purify_3d_parallel",
 ]

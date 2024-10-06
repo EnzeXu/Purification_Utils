@@ -1,6 +1,8 @@
 import numpy as np
 import sympy as sp
 
+from concurrent.futures import ProcessPoolExecutor
+
 
 def is_term_constant(term):
     """
@@ -52,7 +54,7 @@ def evaluate_expression(expression_str, variable_list, variable_values):
     return result_value
 
 
-def purify(eq, data, variable_list, threshold=0.05):
+def purify_2d_sequential(eq, data, variable_list, threshold=0.05):
     # data is in shape (N, m). Here m is the dimension of the ODE system
     full_terms, terms, _ = extract(eq)
     n = data.shape[0]
@@ -60,14 +62,67 @@ def purify(eq, data, variable_list, threshold=0.05):
     abs_ratio_array = np.zeros([n, len(full_terms)])
     for i in range(n):
         for j, one_full_term in enumerate(full_terms):
-            abs_value_array[i][j] = np.abs(evaluate_expression(one_full_term, variable_list, data[i]))
+            abs_value_array[i, j] = np.abs(evaluate_expression(one_full_term, variable_list, data[i]))
         for j in range(len(full_terms)):
-            abs_ratio_array[i][j] = abs_value_array[i][j] / np.sum(abs_value_array[i])
+            abs_ratio_array[i, j] = abs_value_array[i, j] / np.sum(abs_value_array[i])
     avg_ratio = np.average(abs_ratio_array, axis=0)
     purified_full_terms = [full_terms[i] for i in range(len(full_terms)) if avg_ratio[i] >= threshold]
     purified_eq = sp.sympify(sp.Add(*purified_full_terms))
     return purified_eq, avg_ratio, full_terms, terms
 
+def purify_3d_sequential(eq, data, variable_list, threshold=0.05):
+    # data is in shape (n_traj, N, m). Here m is the dimension of the ODE system
+    full_terms, terms, _ = extract(eq)
+    n_traj, n = data.shape[0], data.shape[1]
+    abs_value_array = np.zeros([n_traj * n, len(full_terms)])
+    abs_ratio_array = np.zeros([n_traj * n, len(full_terms)])
+    for i_traj in range(n_traj):
+        for i in range(n):
+            for j, one_full_term in enumerate(full_terms):
+                abs_value_array[i_traj * n + i, j] = np.abs(evaluate_expression(one_full_term, variable_list, data[i_traj, i]))
+        for i in range(n):
+            for j in range(len(full_terms)):
+                abs_ratio_array[i_traj * n + i, j] = abs_value_array[i_traj * n + i, j] / np.sum(abs_value_array[i_traj * n + i])
+    avg_ratio = np.average(abs_ratio_array, axis=0)
+    purified_full_terms = [full_terms[i] for i in range(len(full_terms)) if avg_ratio[i] >= threshold]
+    purified_eq = sp.sympify(sp.Add(*purified_full_terms))
+    return purified_eq, avg_ratio, full_terms, terms
+
+
+def process_traj(i_traj, data, full_terms, variable_list):
+    n = data.shape[1]
+    abs_value_array = np.zeros([n, len(full_terms)])
+    abs_ratio_array = np.zeros([n, len(full_terms)])
+
+    for i in range(n):
+        for j, one_full_term in enumerate(full_terms):
+            abs_value_array[i, j] = np.abs(evaluate_expression(one_full_term, variable_list, data[i_traj, i]))
+
+    for i in range(n):
+        for j in range(len(full_terms)):
+            abs_ratio_array[i, j] = abs_value_array[i, j] / np.sum(abs_value_array[i])
+
+    return abs_ratio_array
+
+
+def purify_3d_parallel(eq, data, variable_list, threshold=0.05, max_workers=None):
+    # data is in shape (n_traj, N, m). Here m is the dimension of the ODE system
+    full_terms, terms, _ = extract(eq)
+    n_traj = data.shape[0]
+
+    abs_ratio_array = np.zeros([n_traj * data.shape[1], len(full_terms)])
+
+    with ProcessPoolExecutor(max_workers=max_workers) as executor:
+        futures = [executor.submit(process_traj, i_traj, data, full_terms, variable_list) for i_traj in range(n_traj)]
+
+        for i_traj, future in enumerate(futures):
+            abs_ratio_array[i_traj * data.shape[1]: (i_traj + 1) * data.shape[1]] = future.result()
+
+    avg_ratio = np.average(abs_ratio_array, axis=0)
+    purified_full_terms = [full_terms[i] for i in range(len(full_terms)) if avg_ratio[i] >= threshold]
+    purified_eq = sp.sympify(sp.Add(*purified_full_terms))
+
+    return purified_eq, avg_ratio, full_terms, terms
 
 
 
